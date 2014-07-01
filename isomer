@@ -1,0 +1,116 @@
+#!/bin/bash
+
+if [[ -z "$1" ]] || [[ -z "$2" ]] || [[ "$1" == "--help" ]]; then
+	echo "Usage: $0 INPUT_FILE OUTPUT_DIR [OPTIONS]"
+	echo "Framework for generating packages of Pale Moon from its archives."
+	exit 1
+fi
+
+OUTPUT_DIR="$(readlink -e "$2")"
+if [[ ! -d "$2" ]]; then
+	echo "Specified output directory is invalid."
+	exit 1
+fi
+
+# Distribution detection
+distro_info="$(cat /etc/[A-Za-z]*[_-]{release,version})"
+
+if [[ "$distro_info" =~ Ubuntu ]]; then
+	export TARGET_DISTRO="dpkg-ubuntu"
+	eval $(cat /etc/[A-Za-z]*[_-]{release,version} | grep VERSION_ID)
+	export VERSION_ID
+elif [[ "$distro_info" =~ Debian ]]; then
+	export TARGET_DISTRO="dpkg-debian"
+	eval $(cat /etc/[A-Za-z]*[_-]{release,version} | grep VERSION_ID)
+	export VERSION_ID
+elif [[ "$distro_info" =~ (CentOS|Fedora|OpenSuSE|Mageia) ]]; then
+	export TARGET_DISTRO="rpm-generic"
+else
+	echo "The distribution is unsupported!"
+	exit 1
+fi
+
+export ISOMER_DIR="$(cd "$(dirname "$0")"; pwd -P)"
+export PATH="$PATH:$ISOMER_DIR/modules/common"
+export COMMON_DATA_DIR="$ISOMER_DIR/data/common"
+export ISOMER_CONFIG_DIR=~/.config/isomer
+
+if [[ ! -x "$ISOMER_DIR/modules/$TARGET_DISTRO/$TARGET_DISTRO" ]]; then
+	echo "Module for target $TARGET_DISTRO was not found!"
+fi
+
+set -e # Exit on most errors
+
+echo "Set up temporary directory for creating packages..."
+export PKGDIR="$(mktemp -d /tmp/isomer.XXXXXX)"
+
+echo "Extract palemoon archive..."
+tar -xvf "$1" -C "$PKGDIR"
+
+cd "$PKGDIR"
+
+echo "Gleaning information about the provided binaries..."
+set +e # Disable exit on error so that user can be warned of errors
+
+# Only those files need to be checked, which will be symlinked or used actively
+echo "Checking constituent files..."
+pm_filelist=(
+	./palemoon/palemoon
+	./palemoon/browser/chrome/icons/default/default16.png
+	./palemoon/browser/chrome/icons/default/default32.png
+	./palemoon/browser/chrome/icons/default/default48.png
+	./palemoon/browser/icons/mozicon128.png
+)
+
+for i in ${pm_filelist[*]}; do
+	if [[ ! -e "$i" ]]; then
+		echo "$i was not found!"
+	fi
+done
+
+export PM_VERSION="$(grep -E '^Version=' ./palemoon/application.ini | grep -Eo '([0-9]+\.)+[0-9ab]+$')"
+
+case "$(file ./palemoon/palemoon)" in
+*32-bit*)
+	export PM_ARCH=i386
+	;;
+*64-bit*)
+	export PM_ARCH=amd64
+	;;
+esac
+
+check_vars=(PM_VERSION PM_ARCH)
+for i in ${check_vars[*]}; do
+	if [[ ! ${!i} ]]; then
+		echo "$i could not be determined!"
+	fi
+done
+
+set -e # Re-enable exit on error
+
+echo "Setting up the pseudo file system..."
+mkdir -v ./fs
+cd ./fs
+mkdir -pv ./opt ./usr/lib ./usr/bin ./usr/share/man/man1 ./usr/share/applications
+
+for i in 16 32 48 128; do
+	mkdir -pv ./usr/share/icons/hicolor/${i}x${i}/apps
+done
+
+echo "Copying files to the pseudo file system..."
+mv -v ../palemoon ./opt
+ln -sv /opt/palemoon/palemoon ./usr/bin/palemoon
+
+ln -sv /opt/palemoon/browser/chrome/icons/default/default16.png ./usr/share/icons/hicolor/16x16/apps/palemoon.png
+ln -sv /opt/palemoon/browser/chrome/icons/default/default32.png ./usr/share/icons/hicolor/32x32/apps/palemoon.png
+ln -sv /opt/palemoon/browser/chrome/icons/default/default48.png ./usr/share/icons/hicolor/48x48/apps/palemoon.png
+ln -sv /opt/palemoon/browser/icons/mozicon128.png ./usr/share/icons/hicolor/128x128/apps/palemoon.png
+
+cp -v "$COMMON_DATA_DIR/palemoon.1.gz" ./usr/share/man/man1
+cp -v "$COMMON_DATA_DIR/palemoon.desktop" ./usr/share/applications
+
+shift 2 # Remove program name, input file name and output dir from arg list
+
+export MODULE_DATA_DIR="$ISOMER_DIR/data/$TARGET_DISTRO"
+export PATH="$PATH:$ISOMER_DIR/modules/$TARGET_DISTRO"
+"$ISOMER_DIR/modules/$TARGET_DISTRO/$TARGET_DISTRO" "$OUTPUT_DIR" "$@"

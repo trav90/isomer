@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -e
+
+. "$ISOMER_CONFIG_DIR/dpkg.conf"
+
+check_vars=(MAINTAINER_NAME MAINTAINER_EMAIL)
+for i in ${check_vars[*]}; do
+	if [[ ! ${!i} ]]; then
+		echo "$i is not defined!"
+	fi
+done
+
+echo "Setting up Pale Moon to use hunspell and hyphen..."
+rm -r ./opt/palemoon/dictionaries
+ln -vs /usr/share/hunspell ./opt/palemoon/dictionaries
+ln -vs /usr/share/hyphen ./opt/palemoon/hyphenation
+
+echo "Copying filesystem structure to packaging directory..."
+cp -rv "$MODULE_DATA_DIR/usr" ./
+
+echo "Calculating installed size..."
+size=$(($(dirsize .)/1024))
+
+echo "Resolving dependencies..."
+deps="$(depresolver ./opt/palemoon | tr '\n' ',' | sed -r 's/,$//;s/,/, /g')"
+
+echo "Copying DEBIAN directory to packaging directory..."
+cp -rv "$MODULE_DATA_DIR/DEBIAN" ./
+
+echo "Calculating md5sums..."
+find . -type f -exec md5sum {} \; | grep -v './DEBIAN/' | sed 's|\./||g' > DEBIAN/md5sums
+
+echo "Performing replacements in DEBIAN/control..."
+sed "s/__PM_VERSION__/$PM_VERSION/g;s/__PM_ARCH__/$PM_ARCH/g;s/__MAINTAINER_NAME__/$MAINTAINER_NAME/g;s/__MAINTAINER_EMAIL__/$MAINTAINER_EMAIL/g;s/__PACKAGE_SIZE__/$size/g;s/__DEPENDENCIES__/$deps/g" DEBIAN/control > DEBIAN/control.1
+mv DEBIAN/control.1 DEBIAN/control
+
+cd ..
+
+dpkg-deb -bZxz fs
+mv -vf fs.deb "$1/palemoon-$PM_VERSION-$PM_ARCH~${TARGET_DISTRO/dpkg-/}-$VERSION_ID.deb"

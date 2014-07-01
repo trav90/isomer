@@ -1,0 +1,13 @@
+Package: palemoon
+Version: __PM_VERSION__
+Architecture: __PM_ARCH__
+Maintainer: __MAINTAINER_NAME__ <__MAINTAINER_EMAIL__>
+Installed-Size: __PACKAGE_SIZE__
+Depends: __DEPENDENCIES__, fontconfig, procps, debianutils (>= 1.16)
+Provides: gnome-www-browser, www-browser
+Section: web
+Priority: optional
+Description: Firefox based web browser
+ Pale Moon is a Firefox based browser designed for efficiency that comes with an
+ UI similar to what was present in older versions of Firefox. Pale Moon requires
+ a processor that supports the SSE2 instruction set.

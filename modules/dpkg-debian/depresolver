@@ -1,0 +1,32 @@
+#!/bin/bash
+
+find_required_libs ()
+{
+	while read file; do
+		if [[ "$(head -c 4 "$file")" == $'\x7fELF' ]]; then
+			objdump -p "$file" | grep NEEDED | sed -r 's/^ +NEEDED +//g'
+		fi
+	done < <(find "$1" -type f) | sort -u | grep -E '\.[0-9]+'
+}
+
+find_correlated_package ()
+{
+	dpkg -S "$1" | sed -r 's/:.*$//g'
+}
+
+if [[ -z "$1" ]]; then
+	echo "Usage: $0 DIRECTORY" >&2
+	exit 1
+fi
+
+if [[ ! -d "$(readlink -e "$1")" ]]; then
+	echo "$1 is not a directory!" >&2
+	exit 1
+fi
+
+while read file; do
+	if ! find_correlated_package "$file"; then
+		echo "Dependency could not be resolved for $file" >&2
+		exit 1
+	fi
+done < <(find_required_libs "$1") | sort -u

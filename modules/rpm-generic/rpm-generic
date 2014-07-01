@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -e
+
+echo "Setting up the rpmbuild directory..."
+rpmdev-setuptree
+
+echo "Creating the 'source' archive..."
+cd ..
+mv -v fs palemoon-$PM_VERSION
+tar -vcf palemoon-$PM_VERSION.tar palemoon-$PM_VERSION
+
+cd ~/rpmbuild
+mv -v "$PKGDIR/palemoon-$PM_VERSION.tar" SOURCES/
+
+(
+	sed "s/__PM_VERSION__/$PM_VERSION/g" "$MODULE_DATA_DIR/palemoon-pkg.spec"
+	cd "$PKGDIR/palemoon-$PM_VERSION"
+	find . -type f -o -type l | sed -r 's|^\.||g'
+) > SPECS/palemoon-pkg.spec
+
+rpmbuild -bb SPECS/palemoon-pkg.spec
+mv -vf ~/rpmbuild/RPMS/*/palemoon-$PM_VERSION*.rpm "$1"
